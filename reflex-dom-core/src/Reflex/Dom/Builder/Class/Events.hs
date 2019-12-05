@@ -12,8 +12,9 @@ module Reflex.Dom.Builder.Class.Events where
 import Data.GADT.Compare.TH
 #else
 import Data.GADT.Compare
-       (GOrdering(..), (:~:)(..), GEq(..), GCompare(..))
+       (GOrdering(..), GEq(..), GCompare(..))
 #endif
+import Data.Type.Equality ((:~:)(..))
 
 data EventTag
    = AbortTag
