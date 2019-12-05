@@ -48,9 +48,9 @@ library
   hs-source-dirs: src
   build-depends:
     aeson >= 0.8 && < 1.5,
-    base >= 4.7 && < 4.13,
+    base >= 4.7 && < 4.14,
     bifunctors >= 4.2 && < 6,
-    bimap >= 0.3 && < 0.4,
+    bimap >= 0.3 && < 0.5,
     blaze-builder,
     bytestring == 0.10.*,
     containers >= 0.6 && < 0.7,
@@ -69,7 +69,7 @@ library
     lens >= 4.7 && < 5,
     monad-control >= 1.0.1 && < 1.1,
     mtl >= 2.1 && < 2.3,
-    primitive >= 0.5 && < 0.7,
+    primitive >= 0.5 && < 0.8,
     random,
     ref-tf == 0.4.*,
     reflex >= 0.6.2,
