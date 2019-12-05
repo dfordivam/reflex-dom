@@ -45,8 +45,11 @@ in {
     (haskellPackages.callCabal2nix "reflex-dom" ./reflex-dom { })
     (drv: {
       # Hack until https://github.com/NixOS/cabal2nix/pull/432 lands
-      libraryHaskellDepends = (drv.libraryHaskellDepends or []) ++ stdenv.lib.optionals (with stdenv.hostPlatform; isAndroid && is32bit) [
+      libraryHaskellDepends = (drv.libraryHaskellDepends or [])
+        ++ stdenv.lib.optionals (with stdenv.hostPlatform; isAndroid && is32bit) [
         haskellPackages.android-activity
+      ] ++ stdenv.lib.optionals stdenv.targetPlatform.isWasm [
+        haskellPackages.jsaddle-wasm
       ];
     });
   chrome-test-utils = haskellPackages.callCabal2nix "chrome-test-utils" ./chrome-test-utils {};
