@@ -40,7 +40,7 @@ import Data.IORef (IORef)
 import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
-import Language.Javascript.JSaddle (syncPoint, liftJSM)
+import Language.Javascript.JSaddle (liftJSM)
 import Language.Javascript.JSaddle.Warp
 import Network.HTTP.Types (status200)
 import Network.Socket
@@ -1365,14 +1365,14 @@ testWidgetDebug' withDebugging beforeJS afterSwitchover bodyWidget = do
         liftIO $ takeMVar waitBeforeJS
         let switchOverAction = do
               putStrLnDebug "switchover syncPoint"
-              syncPoint
+              liftIO $ pure ()
               putStrLnDebug "putting waitUntilSwitchover"
               liftIO $ putMVar waitUntilSwitchover ()
               putStrLnDebug "put waitUntilSwitchover"
         putStrLnDebug "running mainHydrationWidgetWithSwitchoverAction"
         mainHydrationWidgetWithSwitchoverAction switchOverAction blank bodyWidget
         putStrLnDebug "syncPoint after mainHydrationWidgetWithSwitchoverAction"
-        syncPoint
+        liftIO $ pure ()
   application <- liftIO $ jsaddleOr defaultConnectionOptions entryPoint $ \_ sendResponse -> do
     putStrLnDebug "sending response"
     r <- sendResponse $ responseLBS status200 [] $ "<!doctype html>\n" <> LBS.fromStrict html
