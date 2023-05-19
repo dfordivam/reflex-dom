@@ -50,6 +50,7 @@ import Foreign.Ptr
 import Text.Encoding.Z
 #else
 import GHCJS.DOM.Types (MonadJSM (..), runJSM)
+import Language.Javascript.JSaddle.Types (waitForSync)
 #endif
 
 import Control.Monad.Exception
@@ -146,5 +147,5 @@ newtype JSContextSingleton x = JSContextSingleton { unJSContextSingleton :: JSCo
 instance MonadIO m => MonadJSM (WithJSContextSingleton x m) where
   liftJSM' f = do
     wv <- WithJSContextSingleton ask
-    runJSM f $ unJSContextSingleton wv
+    runJSM (waitForSync *> f) $ unJSContextSingleton wv
 #endif
