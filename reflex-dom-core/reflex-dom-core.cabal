@@ -207,6 +207,7 @@ test-suite hydration
                , hspec-webdriver
                , http-types
                , HUnit
+               , io-streams
                , jsaddle
                , jsaddle-warp
                , lens

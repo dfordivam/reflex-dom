@@ -64,6 +64,10 @@ import System.Directory
 import System.Environment
 import System.IO (stderr)
 import System.IO.Silently
+import System.IO.Streams (connect)
+import System.IO.Streams.File (withFileAsOutput)
+import System.IO.Streams.Handle (handleToInputStream)
+import qualified System.IO.Streams.Process
 import System.IO.Temp
 import System.Process
 import System.Which (staticWhich)
@@ -1637,11 +1641,16 @@ data Selenium = Selenium
 
 startSeleniumServer :: PortNumber -> IO (IO ())
 startSeleniumServer port = do
-  (_,_,_,ph) <- createProcess $ (proc "selenium-server" ["-port", show port])
+  (so,se,_,ph) <- System.IO.Streams.Process.createProcess $ (proc "selenium-server" ["-port", show port])
     { std_in = NoStream
-    , std_out = NoStream
-    , std_err = NoStream
+    , std_out = CreatePipe
+    , std_err = CreatePipe
     }
+  let streamToFile f h = withFileAsOutput f $ \ostream -> do
+        istream <- handleToInputStream h
+        forkIO $ System.IO.Streams.connect istream ostream
+  -- mapM_ (streamToFile "selenium-stdout") so
+  -- mapM_ (streamToFile "selenium-stderr") se
   return $ terminateProcess ph
 
 withSeleniumServer :: (Selenium -> IO ()) -> IO ()
