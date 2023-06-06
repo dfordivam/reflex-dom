@@ -144,6 +144,48 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+    it "modification of child widgets happen together" $ runWD $ do
+      let
+        elemCount = 10 :: Int
+        elemName = "elemName" :: Text
+        -- Checks that all the child elements of runWithReplace get updated
+        -- together as they all get updated via a single Event
+        checkJs = tshow $ renderJs [jmacro|
+          function performChecksInAnimationFrame() {
+            var elms = document.getElementsByName(`(elemName)`);
+            if (elms.length != `(elemCount)`) {
+              document.getElementById("test-result").innerText = "Test Failed, count mismatch";
+              return;
+            }
+            fun performChecks {
+              for(var i = 0; i < elms.length; i++) {
+                if (elms[i].innerText != elms[0].innerText) {
+                  return false;
+                }
+              };
+              return true;
+            }
+            if (performChecks()) {
+              document.getElementById("test-result").innerText = "Test Passed";
+              window.requestAnimationFrame(performChecksInAnimationFrame);
+            } else {
+              document.getElementById("test-result").innerText = "Test Failed";
+            }
+          }
+          window.setTimeout(performChecksInAnimationFrame, 1000);
+        |]
+
+      testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
+        tickEv <- tickLossyFromPostBuildTime 0.1
+        let
+          elN n = do
+            elAttr "p" ("name" =: elemName) $ do
+              runWithReplace blank $ ffor tickEv $ \v -> do
+                text $ tshow . _tickInfo_n $ v
+        elAttr "p" ("id" =: "test-result") blank
+        forM_ [1 .. elemCount] elN
+        void $ liftJSM $ eval checkJs
+
 
 confirmTestPassed = do
   let testRunDuration = (5 * 1000 * 1000)
