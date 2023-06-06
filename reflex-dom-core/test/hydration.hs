@@ -1447,7 +1447,7 @@ tests withDebugging wdConfig caps _selenium = do
           e <- findElemWithRetry (WD.ById $ textKeyInt k)
           checkItem e (textKeyInt k) v
         postBuildPatch = PatchIntMap $ IntMap.fromList [(2, Nothing), (3, Just "trois"), (4, Just "four")]
-    xit "doesn't replace elements at switchover, can delete/update/insert" $ runWD $ do
+    it "doesn't replace elements at switchover, can delete/update/insert" $ runWD $ do
       chan <- liftIO newChan
       let preSwitchover = getAndCheckInitialItems intMap
           check xs = do
@@ -1458,7 +1458,7 @@ tests withDebugging wdConfig caps _selenium = do
       testWidget' preSwitchover check $ void $ do
         (im, _evt) <- traverseIntMapWithKeyWithAdjust widget intMap =<< triggerEventWithChan chan
         liftIO $ im `H.shouldBe` intMap
-    xit "handles postBuild correctly" $ runWD $ do
+    it "handles postBuild correctly" $ runWD $ do
       chan <- liftIO newChan
       let preSwitchover = getAndCheckInitialItems $ applyAlways postBuildPatch intMap
           check xs = do
@@ -1471,7 +1471,7 @@ tests withDebugging wdConfig caps _selenium = do
         replace <- triggerEventWithChan chan
         (dmap, _evt) <- traverseIntMapWithKeyWithAdjust widget intMap $ leftmost [postBuildPatch <$ pb, replace]
         liftIO $ dmap `H.shouldBe` intMap
-    xit "can delete/update/insert when built in prerender" $ runWD $ do
+    it "can delete/update/insert when built in prerender" $ runWD $ do
       chan <- liftIO newChan
       let check = do
             _ <- getAndCheckInitialItems intMap
@@ -1483,7 +1483,7 @@ tests withDebugging wdConfig caps _selenium = do
         prerender_ (pure ()) $ do
           (dmap, _evt) <- traverseIntMapWithKeyWithAdjust widget intMap replace
           liftIO $ dmap `H.shouldBe` intMap
-    xit "can delete/update/insert when built in immediate mode" $ runWD $ do
+    it "can delete/update/insert when built in immediate mode" $ runWD $ do
       chan <- liftIO newChan
       let check = do
             _ <- getAndCheckInitialItems intMap
@@ -1495,8 +1495,7 @@ tests withDebugging wdConfig caps _selenium = do
         runWithReplace (pure ()) $ ffor pb $ \() -> void $ do
           (dmap, _evt) <- traverseIntMapWithKeyWithAdjust widget intMap =<< triggerEventWithChan chan
           liftIO $ dmap `H.shouldBe` intMap
-    -- Should be fixed by prerender changes!
-    xit "handles postBuild correctly in prerender" $ runWD $ do
+    it "handles postBuild correctly in prerender" $ runWD $ do
       chan <- liftIO newChan
       let check = do
             _ <- getAndCheckInitialItems $ applyAlways postBuildPatch intMap
