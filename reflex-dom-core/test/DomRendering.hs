@@ -92,7 +92,7 @@ seleniumConfig = SeleniumSetupConfig
 main :: IO ()
 main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
   let cfg = TestWidgetConfig False blank 8001
-  describe "tests using webdriver session" $ runSession $ do
+  describe "Rendering of DOM updates" $ runSession $ do
     it "modification of attributes happen together" $ runWD $ do
       let
         elemCount = 10 :: Int
