@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -43,8 +44,9 @@ import Data.List (sort)
 import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
-import Language.Javascript.JSaddle (syncPoint, liftJSM)
+import Language.Javascript.JSaddle (syncPoint, liftJSM, eval)
 import Language.Javascript.JSaddle.Warp
+import Language.Javascript.JMacro
 import Network.HTTP.Types (status200)
 import Network.Socket
 import Network.Wai
@@ -52,16 +54,6 @@ import Network.WebSockets
 import Reflex.Dom.Core
 import Reflex.Dom.Widget.Input (dropdown)
 import Reflex.Patch.DMapWithMove
-import System.Directory
-import System.Environment
-import System.IO (stderr)
-import System.IO.Silently
-import System.IO.Streams (connect)
-import System.IO.Streams.File (withFileAsOutput)
-import System.IO.Streams.Handle (handleToInputStream)
-import qualified System.IO.Streams.Process
-import System.IO.Temp
-import System.Process
 import System.Which (staticWhich)
 import qualified Test.HUnit as HUnit
 import qualified Test.Hspec as H
@@ -101,7 +93,58 @@ main :: IO ()
 main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
   let cfg = TestWidgetConfig False blank 8001
   describe "tests using webdriver session" $ runSession $ do
-    it "works in simple case" $ runWD $ do
-      testWidget cfg (checkBodyText "One") (checkBodyText "Two") $ do
-        prerender_ (text "One") (text "Two")
+    it "modification of attributes happen together" $ runWD $ do
+      let
+        elemCount = 10 :: Int
+        elemName = "check-modify-attr-el" :: Text
+        checkJs = tshow $ renderJs [jmacro|
+          function checkElmsVisibility() {
+            var elms = document.getElementsByName(`(elemName)`);
+            if (elms.length != `(elemCount)`) {
+              document.getElementById("test-result").innerText = "Test Failed, count mismatch";
+              return;
+            }
+            fun isVisible el { return el.offsetParent === null; };
+            var isEvenVisible = isVisible(elms[0]);
+            fun performChecks {
+              for(var i = 0; i < elms.length; i++) {
+                var v = isVisible(elms[i]);
+                if (i % 2 == 0) {
+                  if (isEvenVisible != v) return false;
+                } else {
+                  if (isEvenVisible == v) return false;
+                }
+              };
+              return true;
+            }
+            if (performChecks()) {
+              document.getElementById("test-result").innerText = "Test Passed";
+              window.requestAnimationFrame(checkElmsVisibility);
+            } else {
+              document.getElementById("test-result").innerText = "Test Failed";
+            }
+          }
+          window.setTimeout(checkElmsVisibility, 1000);
+        |]
 
+        confirmTestPassed = do
+          -- Allow the checks to run for a while
+          liftIO $ threadDelay (5 * 1000 * 1000)
+          shouldContainTextNoRetry "Test Passed" =<< findElemWithRetry (WD.ById "test-result")
+
+      testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
+        tickEv <- tickLossyFromPostBuildTime 0.1
+        toggledDynV <- toggle False tickEv
+        let
+          elN n = do
+            let attr = ffor toggledDynV $ \b -> ("name" =: elemName) <> "style" =: (if even n == b
+                  then "display: none"
+                  else "")
+            elDynAttr "p" attr $ text $ tshow n
+        elAttr "p" ("id" =: "test-result") blank
+        forM_ [1 .. elemCount] elN
+        void $ liftJSM $ eval checkJs
+
+
+tshow :: (Show a) => a -> Text
+tshow = (T.pack . show)
