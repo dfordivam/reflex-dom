@@ -997,7 +997,10 @@ tests withDebugging wdConfig caps _selenium = do
           performEvent_ $ liftIO . writeRef focusRef <$> updated (_selectElement_hasFocus e)
       it "has correct initial value" $ runWD $ do
         valueRef :: IORef Text <- newRef ""
-        let checkValue = readRef valueRef `shouldBeWithRetryM` "one"
+        let checkValue = do
+              -- This is a no-op, but prevents a deadlock situation
+              _ <- findElemWithRetry $ WD.ByTag "body"
+              readRef valueRef `shouldBeWithRetryM` "one"
         testWidget (pure ()) checkValue $ do
           prerender_ (pure ()) $ do
             (e, ()) <- selectElement def { _selectElementConfig_initialValue = "one" } options
