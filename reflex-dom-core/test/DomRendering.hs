@@ -67,7 +67,7 @@ import qualified Test.HUnit as HUnit
 import qualified Test.Hspec as H
 import qualified Test.Hspec.Core.Spec as H
 import Test.Hspec (xit)
-import Test.Hspec.WebDriver hiding (runWD, click, uploadFile, WD)
+import Test.Hspec.WebDriver hiding (click, uploadFile, WD)
 import qualified Test.Hspec.WebDriver as WD
 import Test.WebDriver (WD(..))
 
@@ -86,77 +86,22 @@ import Test.Util.ChromeFlags
 import Test.Util.UnshareNetwork
 
 import Selenium
+import WebdriverUtils
 
+chromiumPath :: FilePath
+chromiumPath = $(staticWhich "chromium")
 
-keyMap :: DMap DKey Identity
-keyMap = DMap.fromList
-  [ Key_Int ==> 0
-  , Key_Char ==> 'A'
-  ]
-
-data DKey a where
-  Key_Int :: DKey Int
-  Key_Char :: DKey Char
-  Key_Bool :: DKey Bool
-
-
-textKey :: DKey a -> Text
-textKey = \case
-  Key_Int -> "Key_Int"
-  Key_Char -> "Key_Char"
-  Key_Bool -> "Key_Bool"
-
-deriveArgDict ''DKey
-deriveGEq ''DKey
-deriveGCompare ''DKey
-deriveGShow ''DKey
-
-deriving instance MonadFail WD
+seleniumConfig = SeleniumSetupConfig
+  { _seleniumSetupConfig_chromiumPath = chromiumPath
+  , _seleniumSetupConfig_headless = True
+  , _seleniumSetupConfig_seleniumPort = 8000
+  }
 
 main :: IO ()
-main = do
-  unshareNetwork
-  isHeadless <- (== Nothing) <$> lookupEnv "NO_HEADLESS"
-  withSandboxedChromeFlags isHeadless $ \chromeFlags -> do
-    withSeleniumServer $ \selenium -> do
-      let browserPath = T.strip $ T.pack chromium
-      when (T.null browserPath) $ fail "No browser found"
-      withDebugging <- isNothing <$> lookupEnv "NO_DEBUG"
-      let wdConfig = WD.defaultConfig { WD.wdPort = fromIntegral $ _selenium_portNumber selenium }
-          chromeCaps' = WD.getCaps $ chromeConfig browserPath chromeFlags
-      hspec (tests withDebugging wdConfig [(chromeCaps', "chrome")] selenium) `finally` _selenium_stopServer selenium
-
-tests :: Bool -> WD.WDConfig -> [(Capabilities, String)] -> Selenium -> Spec
-tests withDebugging wdConfig caps _selenium = do
-  let putStrLnDebug :: MonadIO m => Text -> m ()
-      putStrLnDebug m = when withDebugging $ liftIO $ putStrLn $ T.unpack m
-      session' t = sessionWith wdConfig t . using caps
-      runWD m = runWDOptions (WdOptions False) $ do
-        putStrLnDebug "before"
-        r <- m
-        putStrLnDebug "after"
-        return r
-  session' "text" $ do
-    it "can add/update/remove attributes" $ runWD $ do
-      let checkInitialAttrs = do
-            e <- findElemWithRetry $ WD.ByTag "div"
-            assertAttr e "const" (Just "const")
-            assertAttr e "delete" (Just "delete")
-            assertAttr e "init" (Just "init")
-            assertAttr e "click" Nothing
-            pure e
-          checkModifyAttrs e = do
-            WD.click e
-            withRetry $ do
-              assertAttr e "const" (Just "const")
-              assertAttr e "delete" Nothing
-              assertAttr e "init" (Just "click")
-              assertAttr e "click" (Just "click")
-      testWidget' checkInitialAttrs checkModifyAttrs $ mdo
-        let conf = def
-              & initialAttributes .~ "const" =: "const" <> "delete" =: "delete" <> "init" =: "init"
-              & modifyAttributes .~ (("delete" =: Nothing <> "init" =: Just "click" <> "click" =: Just "click") <$ click)
-        (e, ()) <- element "div" conf $ text "hello world"
-        let click = domEvent Click e
-        return ()
+main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
+  let cfg = TestWidgetConfig False blank 8001
+  describe "tests using webdriver session" $ runSession $ do
+    it "works in simple case" $ runWD $ do
+      testWidget cfg (checkBodyText "One") (checkBodyText "Two") $ do
+        prerender_ (text "One") (text "Two")
 
