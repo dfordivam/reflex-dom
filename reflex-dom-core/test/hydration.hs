@@ -721,6 +721,7 @@ tests withDebugging wdConfig caps _selenium = do
         inputRef <- newRef ("" :: Text)
         let checkValue = do
               WD.sendKeys "hello world" =<< findElemWithRetry (WD.ByTag "textarea")
+              liftIO $ threadDelay (4000 * 1000)
               WD.click =<< findElemWithRetry (WD.ByTag "button")
               readRef inputRef `shouldBeWithRetryM` "hello world"
         testWidget (pure ()) checkValue $ do
@@ -923,6 +924,7 @@ tests withDebugging wdConfig caps _selenium = do
               e <- findElemWithRetry $ WD.ByTag "select"
               assertAttr e "value" (Just "one")
               WD.click =<< findElemWithRetry (WD.ById "two")
+              liftIO $ threadDelay (4000 * 1000)
               assertAttr e "value" (Just "two")
               WD.click =<< findElemWithRetry (WD.ByTag "button")
               readRef inputRef `shouldBeWithRetryM` "two"
