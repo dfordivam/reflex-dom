@@ -186,6 +186,55 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+    it "widgets render only after getting ready" $ runWD $ do
+      let
+        elemCount = 10 :: Int
+        elemName = "elemName" :: Text
+        unreadyChildName = "unready-child-name" :: Text
+        -- Checks that element having unready child is not rendered
+        checkJs = tshow $ renderJs [jmacro|
+          function performChecksInAnimationFrame() {
+            var elms = document.getElementsByName(`(elemName)`);
+            if (elms.length != `(elemCount)`) {
+              document.getElementById("test-result").innerText = "Test Failed, count mismatch";
+              return;
+            }
+            fun performChecks {
+              var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
+              if (unreadyChild.length != 0) {
+                 return false;
+              }
+              for(var i = 0; i < elms.length; i++) {
+                if (elms[i].innerText != elms[0].innerText) {
+                  return false;
+                }
+              };
+              return true;
+            }
+            if (performChecks()) {
+              document.getElementById("test-result").innerText = "Test Passed";
+              window.requestAnimationFrame(performChecksInAnimationFrame);
+            } else {
+              document.getElementById("test-result").innerText = "Test Failed";
+            }
+          }
+          window.setTimeout(performChecksInAnimationFrame, 1000);
+        |]
+
+      testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
+        tickEv <- tickLossyFromPostBuildTime 0.1
+        let
+          elN n = do
+            elAttr "p" ("name" =: elemName) $ do
+              runWithReplace blank $ ffor tickEv $ \v -> do
+                delayedPb <- delay 0.25 =<< getPostBuild
+                runWithReplace unreadyChild $ ffor delayedPb $ \_ -> do
+                  text $ tshow . _tickInfo_n $ v
+          unreadyChild = do
+            elAttr "div" ("name" =: unreadyChildName) notReady
+        elAttr "p" ("id" =: "test-result") blank
+        forM_ [1 .. elemCount] elN
+        void $ liftJSM $ eval checkJs
 
 confirmTestPassed = do
   let testRunDuration = (5 * 1000 * 1000)
