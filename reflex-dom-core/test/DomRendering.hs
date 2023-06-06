@@ -97,8 +97,12 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
       let
         elemCount = 10 :: Int
         elemName = "check-modify-attr-el" :: Text
+        -- Checks that even and odd elems have same attributes as they are
+        -- derived from a single Dynamic value. In this case it is visibility,
+        -- so either even numbers or odd numbers should be visible at one point
+        -- in time
         checkJs = tshow $ renderJs [jmacro|
-          function checkElmsVisibility() {
+          function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
             if (elms.length != `(elemCount)`) {
               document.getElementById("test-result").innerText = "Test Failed, count mismatch";
@@ -119,12 +123,12 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
             }
             if (performChecks()) {
               document.getElementById("test-result").innerText = "Test Passed";
-              window.requestAnimationFrame(checkElmsVisibility);
+              window.requestAnimationFrame(performChecksInAnimationFrame);
             } else {
               document.getElementById("test-result").innerText = "Test Failed";
             }
           }
-          window.setTimeout(checkElmsVisibility, 1000);
+          window.setTimeout(performChecksInAnimationFrame, 1000);
         |]
 
       testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
