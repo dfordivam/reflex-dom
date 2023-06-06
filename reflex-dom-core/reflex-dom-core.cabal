@@ -236,6 +236,57 @@ test-suite hydration
   if !os(linux) || !arch(x86_64) || flag(profile-reflex) || !flag(hydration-tests)
     buildable: False
 
+test-suite dom-rendering-tests
+  build-depends: base
+               , aeson
+               , async
+               , bytestring
+               , chrome-test-utils
+               , constraints
+               , constraints-extras
+               , containers
+               , dependent-map
+               , dependent-sum
+               , dependent-sum-template
+               , directory
+               , exceptions
+               , filepath
+               , ghcjs-dom
+               , hspec
+               , hspec-core
+               , hspec-webdriver
+               , http-types
+               , HUnit
+               , io-streams
+               , jsaddle
+               , jsaddle-warp
+               , lens
+               , lifted-base
+               , network
+               , random
+               , ref-tf
+               , reflex
+               , reflex-dom-core
+               , process
+               , silently
+               , temporary
+               , text
+               , wai
+               , wai-websockets
+               , warp
+               , webdriver
+               , websockets
+               , which
+  hs-source-dirs: test
+  ghc-options: -rtsopts -with-rtsopts=-T -Wall -fwarn-tabs -funbox-strict-fields -O2 -ferror-spans
+  ghc-prof-options: -fprof-auto -optP-DPROFILING
+  main-is: DomRendering.hs
+  other-modules: Selenium
+  type: exitcode-stdio-1.0
+  default-language: Haskell98
+  if !os(linux) || !arch(x86_64) || flag(profile-reflex)
+    buildable: False
+
 -- broken test on base 4.11 & ghc 8.4.3
 -- needs to be updated for changes in GHC.Stats
 test-suite gc
