@@ -1172,6 +1172,7 @@ tests withDebugging wdConfig caps _selenium = do
             liftIO $ do
               writeChan replaceChan1 "one"
               takeMVar lock
+              threadDelay (1000 * 1000)
             one <- findElemWithRetry $ WD.ByTag "div"
             shouldContainText "pb" one
             liftIO $ writeChan replaceChan2 "two"
