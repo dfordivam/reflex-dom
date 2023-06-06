@@ -258,6 +258,7 @@ test-suite dom-rendering-tests
                , http-types
                , HUnit
                , io-streams
+               , jmacro
                , jsaddle
                , jsaddle-warp
                , lens
