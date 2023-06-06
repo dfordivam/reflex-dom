@@ -281,7 +281,9 @@ test-suite dom-rendering-tests
   ghc-options: -rtsopts -with-rtsopts=-T -Wall -fwarn-tabs -funbox-strict-fields -O2 -ferror-spans
   ghc-prof-options: -fprof-auto -optP-DPROFILING
   main-is: DomRendering.hs
-  other-modules: Selenium
+  other-modules:
+                Selenium
+                WebdriverUtils
   type: exitcode-stdio-1.0
   default-language: Haskell98
   if !os(linux) || !arch(x86_64) || flag(profile-reflex)
