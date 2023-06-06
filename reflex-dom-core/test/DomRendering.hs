@@ -127,11 +127,6 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
           window.setTimeout(checkElmsVisibility, 1000);
         |]
 
-        confirmTestPassed = do
-          -- Allow the checks to run for a while
-          liftIO $ threadDelay (5 * 1000 * 1000)
-          shouldContainTextNoRetry "Test Passed" =<< findElemWithRetry (WD.ById "test-result")
-
       testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
         tickEv <- tickLossyFromPostBuildTime 0.1
         toggledDynV <- toggle False tickEv
@@ -145,6 +140,12 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+
+confirmTestPassed = do
+  let testRunDuration = (5 * 1000 * 1000)
+  -- Allow the checks to run for a while
+  liftIO $ threadDelay testRunDuration
+  shouldContainTextNoRetry "Test Passed" =<< findElemWithRetry (WD.ById "test-result")
 
 tshow :: (Show a) => a -> Text
 tshow = (T.pack . show)
