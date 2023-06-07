@@ -241,6 +241,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         elemCount = 10 :: Int
         elemName = "elemName" :: Text
         unreadyChildName = "unready-child-name" :: Text
+        currentPatchId = "current-patch" :: Text
 
         -- Checks that the sequence of patches when applied leads to the expected DOM updates
         initialDMap :: DMap DKey Identity
@@ -266,6 +267,11 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         patch4 = insertDMapKey Key_2 (Identity 'a')
           <> deleteDMapKey Key_5
           <> insertDMapKey Key_3 (Identity False)
+
+        mkVals = DMap.foldlWithKey (\ls k (Identity v) -> (textKey k, T.pack $ has @Show k $ show v):ls) []
+        vals1 :: [(Text, Text)]
+        vals1 = mkVals (applyAlways patch1 initialDMap)
+
         checkJs = tshow $ renderJs [jmacro|
           function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
@@ -278,8 +284,16 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
               if (unreadyChild.length != 0) {
                  return false;
               }
+              function checkEl (e, vals) {
+                if (e.childElementCount != vals.length) { return false; }
+                for (var i = 0; i < vals.length; i++) {
+                  if (e.children[i].children[0].innerText != vals[i][0]) { return false; }
+                }
+              }
+              var currentPatch = document.getElementById(`(currentPatchId)`).innerText;
+              var vals = `(vals)`;
               for(var i = 0; i < elms.length; i++) {
-                if (elms[i].innerText != elms[0].innerText) {
+                if (!checkEl(elms[i], vals)) {
                   return false;
                 }
               };
@@ -325,7 +339,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
             elAttr "div" ("name" =: unreadyChildName) notReady
 
         elAttr "p" ("id" =: "test-result") blank
-        elAttr "p" ("id" =: "current-patch") $ do
+        elAttr "p" ("id" =: currentPatchId) $ do
           -- we reach init state after the fourth patch, so 0 and 4 are equivalent
           dynText . fmap tshow =<< holdDyn 4 curPatchEv
         forM_ [1 .. elemCount] elN
