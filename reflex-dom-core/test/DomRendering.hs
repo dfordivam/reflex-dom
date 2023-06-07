@@ -236,6 +236,101 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+    it "DMap patches render together" $ runWD $ do
+      let
+        elemCount = 10 :: Int
+        elemName = "elemName" :: Text
+        unreadyChildName = "unready-child-name" :: Text
+
+        -- Checks that the sequence of patches when applied leads to the expected DOM updates
+        initialDMap :: DMap DKey Identity
+        initialDMap = DMap.fromList
+          [ Key_1 ==> 1
+          , Key_2 ==> 'a'
+          , Key_3 ==> False
+          ]
+
+        patches = IntMap.fromList
+          [ (1, patch1)
+          , (2, patch2)
+          , (3, patch3)
+          , (4, patch4)
+          ]
+        patch1 = insertDMapKey Key_4 (Identity "V4")
+        patch2 = moveDMapKey Key_1 Key_5
+          <> insertDMapKey Key_2 (Identity 'b')
+          <> insertDMapKey Key_3 (Identity True)
+        patch3 = moveDMapKey Key_5 Key_1
+          <> deleteDMapKey Key_4
+          <> insertDMapKey Key_5 (Identity 5)
+        patch4 = insertDMapKey Key_2 (Identity 'a')
+          <> deleteDMapKey Key_5
+          <> insertDMapKey Key_3 (Identity False)
+        checkJs = tshow $ renderJs [jmacro|
+          function performChecksInAnimationFrame() {
+            var elms = document.getElementsByName(`(elemName)`);
+            if (elms.length != `(elemCount)`) {
+              document.getElementById("test-result").innerText = "Test Failed, count mismatch";
+              return;
+            }
+            fun performChecks {
+              var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
+              if (unreadyChild.length != 0) {
+                 return false;
+              }
+              for(var i = 0; i < elms.length; i++) {
+                if (elms[i].innerText != elms[0].innerText) {
+                  return false;
+                }
+              };
+              return true;
+            }
+            if (performChecks()) {
+              document.getElementById("test-result").innerText = "Test Passed";
+              window.requestAnimationFrame(performChecksInAnimationFrame);
+            } else {
+              document.getElementById("test-result").innerText = "Test Failed";
+            }
+          }
+          window.setTimeout(performChecksInAnimationFrame, 1000);
+        |]
+
+      testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
+        tickEv <- tickLossyFromPostBuildTime 0.1
+        let
+          -- curPatchEv :: Event t Int
+          curPatchEv = ffor (_tickInfo_n <$> tickEv) $ \n -> (rem (fromIntegral n) 4) + 1
+
+          patchEv = fforMaybe curPatchEv $ \n -> IntMap.lookup n patches
+
+          widget :: (DomBuilder t m, NotReady t m, PerformEvent t m, TriggerEvent t m, PostBuild t m, MonadIO (Performable m)) => DKey a -> Identity a -> m (Identity a)
+          widget k (Identity v) = elAttr "li" ("id" =: textKey k) $ do
+            elClass "span" "key" $ text $ textKey k
+            let
+              vTxt :: Text
+              vTxt = T.pack $ has @Show k $ show v
+            elClass "span" "value" $ text vTxt
+            -- hack to make one of the widget notReady
+            when (vTxt == "True") $ do
+              delayedPb <- delay 0.25 =<< getPostBuild
+              void $ runWithReplace unreadyChild $ ffor delayedPb $ \_ -> blank
+            pure (Identity v)
+
+          elN n = do
+            void $ elAttr "p" ("name" =: elemName) $ do
+              traverseDMapWithKeyWithAdjustWithMove widget initialDMap patchEv
+
+          unreadyChild :: (DomBuilder t m, NotReady t m) => m ()
+          unreadyChild = do
+            elAttr "div" ("name" =: unreadyChildName) notReady
+
+        elAttr "p" ("id" =: "test-result") blank
+        elAttr "p" ("id" =: "current-patch") $ do
+          -- we reach init state after the fourth patch, so 0 and 4 are equivalent
+          dynText . fmap tshow =<< holdDyn 4 curPatchEv
+        forM_ [1 .. elemCount] elN
+        void $ liftJSM $ eval checkJs
+
 confirmTestPassed = do
   let testRunDuration = (5 * 1000 * 1000)
   -- Allow the checks to run for a while
@@ -244,3 +339,23 @@ confirmTestPassed = do
 
 tshow :: (Show a) => a -> Text
 tshow = (T.pack . show)
+
+data DKey a where
+  Key_1 :: DKey Int
+  Key_2 :: DKey Char
+  Key_3 :: DKey Bool
+  Key_4 :: DKey Text
+  Key_5 :: DKey Int
+
+textKey :: DKey a -> Text
+textKey = \case
+  Key_1 -> "Key_1"
+  Key_2 -> "Key_2"
+  Key_3 -> "Key_3"
+  Key_4 -> "Key_4"
+  Key_5 -> "Key_5"
+
+deriveArgDict ''DKey
+deriveGEq ''DKey
+deriveGCompare ''DKey
+deriveGShow ''DKey
