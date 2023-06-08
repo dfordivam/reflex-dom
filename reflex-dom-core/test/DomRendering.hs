@@ -325,9 +325,11 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
                 }
                 return true;
               }
-              var currentPatch = Number(document.getElementById("Key_1").children[1].innerText);
               var js_vals = `(vals)`;
               for(var i = 0; i < elms.length; i++) {
+                // Due to the notReady, each of the elms may be showing a
+                // different patch. Get the patch for the current el via "Key_1" value
+                var currentPatch = Number(elms[i].children[0].children[1].innerText);
                 if (!checkEl(elms[i], js_vals[currentPatch])) {
                   return false;
                 }
@@ -345,7 +347,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         |]
 
       testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
-        tickEv <- (fmap _tickInfo_n) <$> tickLossyFromPostBuildTime 1
+        tickEv <- (fmap _tickInfo_n) <$> tickLossyFromPostBuildTime 0.5
         -- tickEv <- (fmap fst) <$> (numberOccurrences =<< button "Tick Increment")
         let
           -- curPatchEv :: Event t Int
