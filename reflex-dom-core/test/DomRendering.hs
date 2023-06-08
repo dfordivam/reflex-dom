@@ -24,6 +24,7 @@
 import Prelude hiding (fail)
 import Control.Concurrent
 import qualified Control.Concurrent.Async as Async
+import Control.Lens hiding (has)
 import Control.Lens.Operators
 import Control.Monad hiding (fail)
 import Control.Monad.Catch
@@ -241,36 +242,52 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         elemCount = 10 :: Int
         elemName = "elemName" :: Text
         unreadyChildName = "unready-child-name" :: Text
-        currentPatchId = "current-patch" :: Text
 
         -- Checks that the sequence of patches when applied leads to the expected DOM updates
+        -- The current patch count is specified in Key_1, which allows the JS code to do the verification
+
         initialDMap :: DMap DKey Identity
         initialDMap = DMap.fromList
-          [ Key_1 ==> 1
+          [ Key_1 ==> 0
           , Key_2 ==> 'a'
           , Key_3 ==> False
           ]
 
+        -- The patches have been chosen such that they repeat exactly after one cycle
         patches = IntMap.fromList
           [ (1, patch1)
           , (2, patch2)
           , (3, patch3)
           , (4, patch4)
           ]
-        patch1 = insertDMapKey Key_4 (Identity "V4")
-        patch2 = moveDMapKey Key_1 Key_5
+        patch1 = insertDMapKey Key_1 (Identity 1)
+          <> insertDMapKey Key_4 (Identity "V4")
+          <> insertDMapKey Key_5 (Identity "V5a")
+        patch2 = insertDMapKey Key_1 (Identity 2)
           <> insertDMapKey Key_2 (Identity 'b')
           <> insertDMapKey Key_3 (Identity True)
-        patch3 = moveDMapKey Key_5 Key_1
+          <> moveDMapKey Key_4 Key_5
+        patch3 = insertDMapKey Key_1 (Identity 3)
+          <> insertDMapKey Key_5 (Identity "V5b")
+          <> moveDMapKey Key_5 Key_4
+        patch4 = insertDMapKey Key_1 (Identity 4)
+          <> insertDMapKey Key_2 (Identity 'a')
           <> deleteDMapKey Key_4
-          <> insertDMapKey Key_5 (Identity 5)
-        patch4 = insertDMapKey Key_2 (Identity 'a')
           <> deleteDMapKey Key_5
           <> insertDMapKey Key_3 (Identity False)
 
-        mkVals = DMap.foldlWithKey (\ls k (Identity v) -> (textKey k, T.pack $ has @Show k $ show v):ls) []
-        vals1 :: [(Text, Text)]
+        -- Contents of DMap after patch application
+        mkVals = DMap.foldrWithKey (\k (Identity v) ls -> (textKey k, T.pack $ has @Show k $ show v):ls) []
+        vals :: [[(Text, Text)]]
+        vals = [vals0, vals1, vals2, vals3, vals4]
+        vals0 = mkVals initialDMap
         vals1 = mkVals (applyAlways patch1 initialDMap)
+        -- A bit of fixup of the values, as the move of widget would cause the
+        -- Key_5 to still contain the text "Key_4"
+        vals2 = elementOf (traverse . _1) 3 .~ "Key_4" $
+          (mkVals (applyAlways (patch2 <> patch1) initialDMap))
+        vals3 = mkVals (applyAlways (patch3 <> patch2 <> patch1) initialDMap)
+        vals4 = mkVals (applyAlways (patch4 <> patch3 <> patch2 <> patch1) initialDMap)
 
         checkJs = tshow $ renderJs [jmacro|
           function performChecksInAnimationFrame() {
@@ -282,18 +299,36 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
             fun performChecks {
               var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
               if (unreadyChild.length != 0) {
+                 console.log("found unreadyChildName");
                  return false;
               }
               function checkEl (e, vals) {
-                if (e.childElementCount != vals.length) { return false; }
-                for (var i = 0; i < vals.length; i++) {
-                  if (e.children[i].children[0].innerText != vals[i][0]) { return false; }
+                if (e.childElementCount != vals.length) {
+                 console.log(e.childElementCount, vals.length);
+                return false;
                 }
+                for (var i = 0; i < vals.length; i++) {
+                  if (e.children[i].children[0].innerText != vals[i][0]) {
+                    for (var i = 0; i < vals.length; i++) {
+                       console.log(e.children[i].children[0].innerText, vals[i][0]);
+                       console.log(e.children[i].children[1].innerText, vals[i][1]);
+                    }
+                    return false;
+                  }
+                  if (e.children[i].children[1].innerText != vals[i][1]) {
+                    for (var i = 0; i < vals.length; i++) {
+                       console.log(e.children[i].children[0].innerText, vals[i][0]);
+                       console.log(e.children[i].children[1].innerText, vals[i][1]);
+                    }
+                    return false;
+                  }
+                }
+                return true;
               }
-              var currentPatch = document.getElementById(`(currentPatchId)`).innerText;
-              var vals = `(vals)`;
+              var currentPatch = Number(document.getElementById("Key_1").children[1].innerText);
+              var js_vals = `(vals)`;
               for(var i = 0; i < elms.length; i++) {
-                if (!checkEl(elms[i], vals)) {
+                if (!checkEl(elms[i], js_vals[currentPatch])) {
                   return false;
                 }
               };
@@ -310,10 +345,11 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         |]
 
       testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
-        tickEv <- tickLossyFromPostBuildTime 0.1
+        tickEv <- (fmap _tickInfo_n) <$> tickLossyFromPostBuildTime 1
+        -- tickEv <- (fmap fst) <$> (numberOccurrences =<< button "Tick Increment")
         let
           -- curPatchEv :: Event t Int
-          curPatchEv = ffor (_tickInfo_n <$> tickEv) $ \n -> (rem (fromIntegral n) 4) + 1
+          curPatchEv = ffor tickEv $ \n -> (rem (fromIntegral n) 4) + 1
 
           patchEv = fforMaybe curPatchEv $ \n -> IntMap.lookup n patches
 
@@ -339,9 +375,6 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
             elAttr "div" ("name" =: unreadyChildName) notReady
 
         elAttr "p" ("id" =: "test-result") blank
-        elAttr "p" ("id" =: currentPatchId) $ do
-          -- we reach init state after the fourth patch, so 0 and 4 are equivalent
-          dynText . fmap tshow =<< holdDyn 4 curPatchEv
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
@@ -359,7 +392,7 @@ data DKey a where
   Key_2 :: DKey Char
   Key_3 :: DKey Bool
   Key_4 :: DKey Text
-  Key_5 :: DKey Int
+  Key_5 :: DKey Text
 
 textKey :: DKey a -> Text
 textKey = \case
