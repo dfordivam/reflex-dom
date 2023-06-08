@@ -103,30 +103,31 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         -- so either even numbers or odd numbers should be visible at one point
         -- in time
         checkJs = tshow $ renderJs [jmacro|
+          function performChecks (elms) {
+            fun isVisible el { return el.offsetParent === null; };
+            var isEvenVisible = isVisible(elms[0]);
+            for(var i = 0; i < elms.length; i++) {
+              var v = isVisible(elms[i]);
+              if (i % 2 == 0) {
+                if (isEvenVisible != v) return [isEvenVisible, i];
+              } else {
+                if (isEvenVisible == v) return [isEvenVisible, i];
+              }
+            };
+            return [];
+          }
           function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
             if (elms.length != `(elemCount)`) {
               document.getElementById("test-result").innerText = "Test Failed, count mismatch";
               return;
             }
-            fun isVisible el { return el.offsetParent === null; };
-            var isEvenVisible = isVisible(elms[0]);
-            fun performChecks {
-              for(var i = 0; i < elms.length; i++) {
-                var v = isVisible(elms[i]);
-                if (i % 2 == 0) {
-                  if (isEvenVisible != v) return false;
-                } else {
-                  if (isEvenVisible == v) return false;
-                }
-              };
-              return true;
-            }
-            if (performChecks()) {
+            var errors = performChecks(elms);
+            if (errors.length == 0) {
               document.getElementById("test-result").innerText = "Test Passed";
               window.requestAnimationFrame(performChecksInAnimationFrame);
             } else {
-              document.getElementById("test-result").innerText = "Test Failed";
+              document.getElementById("test-result").innerText = "Test Failed: " + errors.toString();
             }
           }
           window.setTimeout(performChecksInAnimationFrame, 1000);
