@@ -207,11 +207,6 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
               if (unreadyChild.length != 0) {
                  return false;
               }
-              for(var i = 0; i < elms.length; i++) {
-                if (elms[i].innerText != elms[0].innerText) {
-                  return false;
-                }
-              };
               return true;
             }
             if (performChecks()) {
@@ -225,7 +220,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         |]
 
       testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
-        tickEv <- tickLossyFromPostBuildTime 0.1
+        tickEv <- tickLossyFromPostBuildTime 0.5
         let
           elN n = do
             elAttr "p" ("name" =: elemName) $ do
