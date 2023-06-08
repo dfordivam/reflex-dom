@@ -145,6 +145,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+  describe "runWithReplace" $ runSession $ do
     it "modification of child widgets happen together" $ runWD $ do
       let
         elemCount = 10 :: Int
@@ -187,6 +188,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+  describe "notReady" $ runSession $ do
     it "widgets render only after getting ready" $ runWD $ do
       let
         elemCount = 10 :: Int
@@ -237,6 +239,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+  describe "traverseDMapWithKeyWithAdjustWithMove" $ runSession $ do
     it "DMap patches render together" $ runWD $ do
       let
         elemCount = 10 :: Int
