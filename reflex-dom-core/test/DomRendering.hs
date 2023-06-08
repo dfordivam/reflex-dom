@@ -161,7 +161,7 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
             }
             fun performChecks {
               for(var i = 0; i < elms.length; i++) {
-                if (elms[i].innerText != elms[0].innerText) {
+                if (!elms[i].isEqualNode(elms[0])) {
                   return false;
                 }
               };
