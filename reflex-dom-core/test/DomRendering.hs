@@ -452,7 +452,7 @@ main = do
             }
             function checkEl (e, vals) {
               if (e.childElementCount != vals.length) {
-                return ["e.childElementCount", e.childElementCount, vals.length];
+                return ["e.childElementCount", e.childElementCount, vals.length, vals];
               }
               for (var i = 0; i < vals.length; i++) {
                 if (e.children[i].children[0].innerText != vals[i][0]) {
@@ -510,7 +510,9 @@ main = do
 
           patchEv = fforMaybe curPatchEv $ \n -> IntMap.lookup n patches
 
-          widget :: (DomBuilder t m, NotReady t m, PerformEvent t m, TriggerEvent t m, PostBuild t m, MonadIO (Performable m)) => DKey a -> Identity a -> m (Identity a)
+          widget :: (DomBuilder t m, NotReady t m, PerformEvent t m, TriggerEvent t m
+                    , PostBuild t m, MonadIO (Performable m))
+                 => DKey a -> Identity a -> m (Identity a)
           widget k (Identity v) = elAttr "li" ("id" =: textKey k) $ do
             elClass "span" "key" $ text $ textKey k
             let
