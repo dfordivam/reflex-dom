@@ -244,8 +244,9 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         elemName = "elemName" :: Text
         unreadyChildName = "unready-child-name" :: Text
 
-        -- Checks that the sequence of patches when applied leads to the expected DOM updates
-        -- The current patch count is specified in Key_1, which allows the JS code to do the verification
+        -- Checks that the sequence of patches when applied leads to the
+        -- expected DOM updates The current patch 'count' is specified as the
+        -- value of Key_1, which helps the JS code in doing the DOM verification
 
         initialDMap :: DMap DKey Identity
         initialDMap = DMap.fromList
@@ -291,57 +292,57 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         vals4 = mkVals (applyAlways (patch4 <> patch3 <> patch2 <> patch1) initialDMap)
 
         checkJs = tshow $ renderJs [jmacro|
+          function performChecks (elms) {
+            var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
+            if (unreadyChild.length != 0) {
+               return ["unreadyChild.length", unreadyChild.length];
+            }
+            function checkEl (e, vals) {
+              if (e.childElementCount != vals.length) {
+                return ["e.childElementCount", e.childElementCount, vals.length];
+              }
+              for (var i = 0; i < vals.length; i++) {
+                if (e.children[i].children[0].innerText != vals[i][0]) {
+                  for (var i = 0; i < vals.length; i++) {
+                     console.log(e.children[i].children[0].innerText, vals[i][0]);
+                     console.log(e.children[i].children[1].innerText, vals[i][1]);
+                  }
+                  return [e.children[i].children[0].innerText, vals[i][0]];
+                }
+                if (e.children[i].children[1].innerText != vals[i][1]) {
+                  for (var i = 0; i < vals.length; i++) {
+                     console.log(e.children[i].children[0].innerText, vals[i][0]);
+                     console.log(e.children[i].children[1].innerText, vals[i][1]);
+                  }
+                  return [e.children[i].children[1].innerText, vals[i][1]];
+                }
+              }
+              return [];
+            }
+            var js_vals = `(vals)`;
+            for(var i = 0; i < elms.length; i++) {
+              // Due to the notReady, each of the elms may be showing a
+              // different patch. Get the patch for the current el via "Key_1" value
+              var currentPatch = Number(elms[i].children[0].children[1].innerText);
+              var errors = checkEl(elms[i], js_vals[currentPatch]);
+              if (errors.length != 0) {
+                return errors;
+              }
+            };
+            return [];
+          }
           function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
             if (elms.length != `(elemCount)`) {
               document.getElementById("test-result").innerText = "Test Failed, count mismatch";
               return;
             }
-            fun performChecks {
-              var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
-              if (unreadyChild.length != 0) {
-                 console.log("found unreadyChildName");
-                 return false;
-              }
-              function checkEl (e, vals) {
-                if (e.childElementCount != vals.length) {
-                 console.log(e.childElementCount, vals.length);
-                return false;
-                }
-                for (var i = 0; i < vals.length; i++) {
-                  if (e.children[i].children[0].innerText != vals[i][0]) {
-                    for (var i = 0; i < vals.length; i++) {
-                       console.log(e.children[i].children[0].innerText, vals[i][0]);
-                       console.log(e.children[i].children[1].innerText, vals[i][1]);
-                    }
-                    return false;
-                  }
-                  if (e.children[i].children[1].innerText != vals[i][1]) {
-                    for (var i = 0; i < vals.length; i++) {
-                       console.log(e.children[i].children[0].innerText, vals[i][0]);
-                       console.log(e.children[i].children[1].innerText, vals[i][1]);
-                    }
-                    return false;
-                  }
-                }
-                return true;
-              }
-              var js_vals = `(vals)`;
-              for(var i = 0; i < elms.length; i++) {
-                // Due to the notReady, each of the elms may be showing a
-                // different patch. Get the patch for the current el via "Key_1" value
-                var currentPatch = Number(elms[i].children[0].children[1].innerText);
-                if (!checkEl(elms[i], js_vals[currentPatch])) {
-                  return false;
-                }
-              };
-              return true;
-            }
-            if (performChecks()) {
+            var errors = performChecks(elms);
+            if (errors.length == 0) {
               document.getElementById("test-result").innerText = "Test Passed";
               window.requestAnimationFrame(performChecksInAnimationFrame);
             } else {
-              document.getElementById("test-result").innerText = "Test Failed";
+              document.getElementById("test-result").innerText = "Test Failed: " + errors.toString();
             }
           }
           window.setTimeout(performChecksInAnimationFrame, 1000);
@@ -382,8 +383,8 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         void $ liftJSM $ eval checkJs
 
 confirmTestPassed = do
+  -- Let the checks run for a while
   let testRunDuration = (5 * 1000 * 1000)
-  -- Allow the checks to run for a while
   liftIO $ threadDelay testRunDuration
   shouldContainTextNoRetry "Test Passed" =<< findElemWithRetry (WD.ById "test-result")
 
