@@ -154,25 +154,26 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         -- Checks that all the child elements of runWithReplace get updated
         -- together as they all get updated via a single Event
         checkJs = tshow $ renderJs [jmacro|
+          function performChecks (elms) {
+            for(var i = 0; i < elms.length; i++) {
+              if (!elms[i].isEqualNode(elms[0])) {
+                return [elms[0].innerText, elms[i].innerText];
+              }
+            };
+            return [];
+          }
           function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
             if (elms.length != `(elemCount)`) {
               document.getElementById("test-result").innerText = "Test Failed, count mismatch";
               return;
             }
-            fun performChecks {
-              for(var i = 0; i < elms.length; i++) {
-                if (!elms[i].isEqualNode(elms[0])) {
-                  return false;
-                }
-              };
-              return true;
-            }
-            if (performChecks()) {
+            var errors = performChecks(elms);
+            if (errors.length == 0) {
               document.getElementById("test-result").innerText = "Test Passed";
               window.requestAnimationFrame(performChecksInAnimationFrame);
             } else {
-              document.getElementById("test-result").innerText = "Test Failed";
+              document.getElementById("test-result").innerText = "Test Failed: " + errors.toString();
             }
           }
           window.setTimeout(performChecksInAnimationFrame, 1000);
@@ -197,24 +198,25 @@ main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
         unreadyChildName = "unready-child-name" :: Text
         -- Checks that element having unready child is not rendered
         checkJs = tshow $ renderJs [jmacro|
+          function performChecks (elms) {
+            var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
+            if (unreadyChild.length != 0) {
+               return ["unreadyChild.length", unreadyChild.length];
+            }
+            return [];
+          }
           function performChecksInAnimationFrame() {
             var elms = document.getElementsByName(`(elemName)`);
             if (elms.length != `(elemCount)`) {
               document.getElementById("test-result").innerText = "Test Failed, count mismatch";
               return;
             }
-            fun performChecks {
-              var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
-              if (unreadyChild.length != 0) {
-                 return false;
-              }
-              return true;
-            }
-            if (performChecks()) {
+            var errors = performChecks(elms);
+            if (errors.length == 0) {
               document.getElementById("test-result").innerText = "Test Passed";
               window.requestAnimationFrame(performChecksInAnimationFrame);
             } else {
-              document.getElementById("test-result").innerText = "Test Failed";
+              document.getElementById("test-result").innerText = "Test Failed: " + errors.toString();
             }
           }
           window.setTimeout(performChecksInAnimationFrame, 1000);
