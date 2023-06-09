@@ -240,6 +240,158 @@ main = do
         forM_ [1 .. elemCount] elN
         void $ liftJSM $ eval checkJs
 
+  describe "traverseIntMapWithKeyWithAdjust" $ runSession $ do
+    it "DMap patches render together" $ runWD $ do
+      let
+        elemCount = 10 :: Int
+        elemName = "elemName" :: Text
+        unreadyChildName = "unready-child-name" :: Text
+
+        -- Checks that the sequence of patches when applied leads to the
+        -- expected DOM updates The current patch 'count' is specified as the
+        -- value of Key_1, which helps the JS code in doing the DOM verification
+
+        initialIntMap :: IntMap.IntMap Int
+        initialIntMap = IntMap.fromList
+          [ (1, 0)
+          , (2, 20)
+          , (3, 30)
+          ]
+
+        -- The patches have been chosen such that they repeat exactly after one cycle
+        patches = IntMap.fromList
+          [ (1, patch1)
+          , (2, patch2)
+          , (3, patch3)
+          , (4, patch4)
+          ]
+        patch1 = PatchIntMap $ IntMap.fromList
+          [ (1, Just 1)
+          , (4, Just 40)
+          , (5, Just 50)
+          ]
+        patch2 = PatchIntMap $ IntMap.fromList
+          [ (1, Just 2)
+          , (2, Just 21)
+          , (3, Just 31)
+          ]
+        patch3 = PatchIntMap $ IntMap.fromList
+          [ (1, Just 3)
+          , (4, Nothing)
+          , (5, Just 52)
+          ]
+        patch4 = PatchIntMap $ IntMap.fromList
+          [ (1, Just 4)
+          , (2, Just 20)
+          , (3, Just 30)
+          , (5, Nothing)
+          ]
+
+        textIntKey k = "Key_" <> tshow k
+
+        -- Contents of IntMap after patch application
+        mkVals = IntMap.foldrWithKey (\k v ls -> (textIntKey k, tshow v):ls) []
+        vals :: [[(Text, Text)]]
+        vals = [vals0, vals1, vals2, vals3, vals4]
+        vals0 = mkVals initialIntMap
+        vals1 = mkVals (applyAlways patch1 initialIntMap)
+        vals2 = mkVals (applyAlways (patch2 <> patch1) initialIntMap)
+        vals3 = mkVals (applyAlways (patch3 <> patch2 <> patch1) initialIntMap)
+        vals4 = mkVals (applyAlways (patch4 <> patch3 <> patch2 <> patch1) initialIntMap)
+
+        checkJs = tshow $ renderJs [jmacro|
+          function performChecks (elms) {
+            var unreadyChild = document.getElementsByName(`(unreadyChildName)`);
+            if (unreadyChild.length != 0) {
+               return ["unreadyChild.length", unreadyChild.length];
+            }
+            function checkEl (e, vals) {
+              if (e.childElementCount != vals.length) {
+                return ["e.childElementCount", e.childElementCount, vals.length, vals];
+              }
+              for (var i = 0; i < vals.length; i++) {
+                if (e.children[i].children[0].innerText != vals[i][0]) {
+                  for (var i = 0; i < vals.length; i++) {
+                     console.log(e.children[i].children[0].innerText, vals[i][0]);
+                     console.log(e.children[i].children[1].innerText, vals[i][1]);
+                  }
+                  return [e.children[i].children[0].innerText, vals[i][0]];
+                }
+                if (e.children[i].children[1].innerText != vals[i][1]) {
+                  for (var i = 0; i < vals.length; i++) {
+                     console.log(e.children[i].children[0].innerText, vals[i][0]);
+                     console.log(e.children[i].children[1].innerText, vals[i][1]);
+                  }
+                  return [e.children[i].children[1].innerText, vals[i][1]];
+                }
+              }
+              return [];
+            }
+            var js_vals = `(vals)`;
+            for(var i = 0; i < elms.length; i++) {
+              // Due to the notReady, each of the elms may be showing a
+              // different patch. Get the patch for the current el via "Key_1" value
+              var currentPatch = Number(elms[i].children[0].children[1].innerText);
+              var errors = checkEl(elms[i], js_vals[currentPatch]);
+              if (errors.length != 0) {
+                return errors;
+              }
+            };
+            return [];
+          }
+          function performChecksInAnimationFrame() {
+            var elms = document.getElementsByName(`(elemName)`);
+            if (elms.length != `(elemCount)`) {
+              document.getElementById("test-result").innerText = "Test Failed, count mismatch";
+              return;
+            }
+            var errors = performChecks(elms);
+            if (errors.length == 0) {
+              document.getElementById("test-result").innerText = "Test Passed";
+              window.requestAnimationFrame(performChecksInAnimationFrame);
+            } else {
+              document.getElementById("test-result").innerText = "Test Failed: " + errors.toString();
+            }
+          }
+          window.setTimeout(performChecksInAnimationFrame, 1000);
+        |]
+
+      testWidget cfg (pure ()) confirmTestPassed $ prerender_ blank $ do
+        tickEv <- (fmap _tickInfo_n) <$> tickLossyFromPostBuildTime 0.5
+        -- tickEv <- (fmap fst) <$> (numberOccurrences =<< button "Tick Increment")
+        let
+          -- curPatchEv :: Event t Int
+          curPatchEv = ffor tickEv $ \n -> (rem (fromIntegral n) 4) + 1
+
+          patchEv = fforMaybe curPatchEv $ \n -> IntMap.lookup n patches
+
+          widget :: (DomBuilder t m, NotReady t m, PerformEvent t m, TriggerEvent t m
+                    , PostBuild t m, MonadIO (Performable m))
+                 => Int -> Int -> m ()
+          widget k v = elAttr "li" ("id" =: textIntKey k) $ do
+            elClass "span" "key" $ text $ textIntKey k
+            let
+              vTxt :: Text
+              vTxt = tshow v
+            elClass "span" "value" $ text vTxt
+            -- hack to make one of the widget notReady
+            when (vTxt == "31") $ do
+              delayedPb <- delay 0.25 =<< getPostBuild
+              void $ runWithReplace unreadyChild $ ffor delayedPb $ \_ -> blank
+            pure ()
+
+          elN n = do
+            void $ elAttr "p" ("name" =: elemName) $ do
+              traverseIntMapWithKeyWithAdjust widget initialIntMap patchEv
+
+          unreadyChild :: (DomBuilder t m, NotReady t m) => m ()
+          unreadyChild = do
+            elAttr "div" ("name" =: unreadyChildName) notReady
+
+        elAttr "p" ("id" =: "test-result") blank
+        forM_ [1 .. elemCount] elN
+        void $ liftJSM $ eval checkJs
+
   describe "traverseDMapWithKeyWithAdjust" $ runSession $ do
     it "DMap patches render together" $ runWD $ do
       let
