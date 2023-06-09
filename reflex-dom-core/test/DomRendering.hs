@@ -55,6 +55,7 @@ import Network.WebSockets
 import Reflex.Dom.Core
 import Reflex.Dom.Widget.Input (dropdown)
 import Reflex.Patch.DMapWithMove
+import System.Environment (lookupEnv)
 import System.Which (staticWhich)
 import qualified Test.HUnit as HUnit
 import qualified Test.Hspec as H
@@ -84,14 +85,16 @@ import WebdriverUtils
 chromiumPath :: FilePath
 chromiumPath = $(staticWhich "chromium")
 
-seleniumConfig = SeleniumSetupConfig
+seleniumConfig isHeadless = SeleniumSetupConfig
   { _seleniumSetupConfig_chromiumPath = chromiumPath
-  , _seleniumSetupConfig_headless = True
+  , _seleniumSetupConfig_headless = isHeadless
   , _seleniumSetupConfig_seleniumPort = 8000
   }
 
 main :: IO ()
-main = withSeleniumSpec seleniumConfig $ \runSession -> hspec $ do
+main = do
+  isHeadless <- isNothing <$> lookupEnv "NO_HEADLESS"
+  withSeleniumSpec (seleniumConfig isHeadless) $ \runSession -> hspec $ do
   let cfg = TestWidgetConfig False blank 8001
   describe "Rendering of DOM updates" $ runSession $ do
     it "modification of attributes happen together" $ runWD $ do
