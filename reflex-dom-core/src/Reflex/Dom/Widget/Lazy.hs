@@ -4,6 +4,7 @@
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 module Reflex.Dom.Widget.Lazy where
 
 import Reflex.Class
@@ -20,14 +21,13 @@ import Control.Monad.Fix
 import Data.Fixed
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHCJS.DOM.Element
 import GHCJS.DOM.Types (MonadJSM)
 
 -- |A list view for long lists. Creates a scrollable element and only renders child row elements near the current scroll position.
-virtualListWithSelection :: forall t m k v. (DomBuilder t m, PostBuild t m, MonadHold t m, PerformEvent t m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace, MonadFix m, Ord k)
+virtualListWithSelection :: forall t m k v. (DomBuilder t m, PostBuild t m, MonadHold t m, PerformEvent t m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace, MonadFix m, Ord k, Eq v)
   => Dynamic t Int -- ^ The height of the visible region in pixels
   -> Int -- ^ The height of each row in pixels
   -> Dynamic t Int -- ^ The total number of items
@@ -117,7 +117,7 @@ virtualList heightPx rowPx maxIndex i0 setI keyToIndex items0 itemsUpdate itemBu
                                          "overflow" =: "hidden" <>
                                          "position" =: "relative"
     mkRow k = toStyleAttr $ "height" =: (T.pack (show rowPx) <> "px") <>
-                            "top" =: ((<>"px") $ T.pack $ show $ keyToIndex k * rowPx) <>
+                            "top" =: (<> "px") (T.pack $ show $ keyToIndex k * rowPx) <>
                             "position" =: "absolute" <>
                             "width" =: "100%"
     findWindow sizeIncrement windowSize startingPosition =

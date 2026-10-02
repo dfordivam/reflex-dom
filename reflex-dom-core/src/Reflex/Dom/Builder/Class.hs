@@ -9,11 +9,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 #if !MIN_VERSION_base(4,9,0)
 {-# LANGUAGE ImpredicativeTypes #-}
+#else
+{-# LANGUAGE Rank2Types #-} -- Implied by ImpredicativeTypes
 #endif
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -21,6 +22,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 #endif
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Reflex.Dom.Builder.Class
        ( module Reflex.Dom.Builder.Class
@@ -46,17 +48,19 @@ import Reflex.Requester.Base
 
 import qualified Control.Category
 import Control.Lens hiding (element)
+import Control.Monad.Fix
 import Control.Monad.Reader
 import qualified Control.Monad.State as Lazy
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Control
 import Data.Default
 import Data.Functor.Misc
+import Data.Kind (Type)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Proxy
-import Data.Semigroup
+import Data.Semigroup.Commutative
 import Data.String
 import Data.Text (Text)
 import Data.Type.Coercion
@@ -64,20 +68,20 @@ import GHCJS.DOM.Types (JSM)
 import qualified GHCJS.DOM.Types as DOM
 
 class Default (EventSpec d EventResult) => DomSpace d where
-  type EventSpec d :: (EventTag -> *) -> *
-  type RawDocument d :: *
-  type RawTextNode d :: *
-  type RawCommentNode d :: *
-  type RawElement d :: *
-  type RawInputElement d :: *
-  type RawTextAreaElement d :: *
-  type RawSelectElement d :: *
+  type EventSpec d :: (EventTag -> Type) -> Type
+  type RawDocument d :: Type
+  type RawTextNode d :: Type
+  type RawCommentNode d :: Type
+  type RawElement d :: Type
+  type RawInputElement d :: Type
+  type RawTextAreaElement d :: Type
+  type RawSelectElement d :: Type
   addEventSpecFlags :: proxy d -> EventName en -> (Maybe (er en) -> EventFlags) -> EventSpec d er -> EventSpec d er
 
 -- | @'DomBuilder' t m@ indicates that @m@ is a 'Monad' capable of building
 -- dynamic DOM in the 'Reflex' timeline @t@
 class (Monad m, Reflex t, DomSpace (DomBuilderSpace m), NotReady t m, Adjustable t m) => DomBuilder t m | m -> t where
-  type DomBuilderSpace m :: *
+  type DomBuilderSpace m :: Type
   textNode :: TextNodeConfig t -> m (TextNode (DomBuilderSpace m) t)
   default textNode :: ( MonadTrans f
                       , m ~ f m'
@@ -157,7 +161,7 @@ class (Monad m, Reflex t, DomSpace (DomBuilderSpace m), NotReady t m, Adjustable
   {-# INLINABLE wrapRawElement #-}
 
 class DomBuilder t m => MountableDomBuilder t m where
-  type DomFragment m :: *
+  type DomFragment m :: Type
   buildDomFragment :: m a -> m (DomFragment m, a)
   mountDomFragment :: DomFragment m -> Event t (DomFragment m) -> m ()
 
@@ -304,6 +308,15 @@ inputElementConfig_elementConfig :: Lens
 inputElementConfig_elementConfig f (InputElementConfig a b c d e) = (\e' -> InputElementConfig a b c d e') <$> f e
 {-# INLINE inputElementConfig_elementConfig #-}
 #endif
+
+instance (Reflex t, er ~ EventResult, DomSpace s) => Default (ElementConfig er t s) where
+  {-# INLINABLE def #-}
+  def = ElementConfig
+    { _elementConfig_namespace = Nothing
+    , _elementConfig_initialAttributes = mempty
+    , _elementConfig_modifyAttributes = Nothing
+    , _elementConfig_eventSpec = def
+    }
 
 instance (Reflex t, er ~ EventResult, DomSpace s) => Default (InputElementConfig er t s) where
   {-# INLINABLE def #-}
@@ -540,15 +553,6 @@ instance HasNamespace (ElementConfig er t m) where
   {-# INLINABLE namespace #-}
   namespace = elementConfig_namespace
 
-instance (Reflex t, er ~ EventResult, DomSpace s) => Default (ElementConfig er t s) where
-  {-# INLINABLE def #-}
-  def = ElementConfig
-    { _elementConfig_namespace = Nothing
-    , _elementConfig_initialAttributes = mempty
-    , _elementConfig_modifyAttributes = Nothing
-    , _elementConfig_eventSpec = def
-    }
-
 instance (DomBuilder t m, PerformEvent t m, MonadFix m, MonadHold t m) => DomBuilder t (PostBuildT t m) where
   type DomBuilderSpace (PostBuildT t m) = DomBuilderSpace m
   wrapRawElement e = lift . wrapRawElement e
@@ -558,7 +562,7 @@ instance (MountableDomBuilder t m, PerformEvent t m, MonadFix m, MonadHold t m) 
   buildDomFragment = liftThrough buildDomFragment
   mountDomFragment f0 f' = lift $ mountDomFragment f0 f'
 
-instance (DomBuilder t m, Monoid w, MonadHold t m, MonadFix m) => DomBuilder t (DynamicWriterT t w m) where
+instance (DomBuilder t m, MonadFix m, Monoid w, MonadHold t m) => DomBuilder t (DynamicWriterT t w m) where
   type DomBuilderSpace (DynamicWriterT t w m) = DomBuilderSpace m
   textNode = liftTextNode
   commentNode = liftCommentNode
@@ -598,7 +602,7 @@ instance (DomBuilder t m, MonadHold t m, MonadFix m) => DomBuilder t (RequesterT
   placeRawElement = lift . placeRawElement
   wrapRawElement e = lift . wrapRawElement e
 
-instance (DomBuilder t m, MonadHold t m, MonadFix m, Semigroup w) => DomBuilder t (EventWriterT t w m) where
+instance (DomBuilder t m, MonadHold t m, Semigroup w) => DomBuilder t (EventWriterT t w m) where
   type DomBuilderSpace (EventWriterT t w m) = DomBuilderSpace m
   textNode = liftTextNode
   commentNode = liftCommentNode
@@ -617,7 +621,7 @@ instance (DomBuilder t m, MonadHold t m, MonadFix m, Semigroup w) => DomBuilder 
   placeRawElement = lift . placeRawElement
   wrapRawElement e = lift . wrapRawElement e
 
-instance (DomBuilder t m, MonadFix m, MonadHold t m, Group q, Query q, Additive q, Eq q) => DomBuilder t (QueryT t q m) where
+instance (DomBuilder t m, MonadFix m, MonadHold t m, Group q, Query q, Commutative q, Eq q) => DomBuilder t (QueryT t q m) where
   type DomBuilderSpace (QueryT t q m) = DomBuilderSpace m
   textNode = liftTextNode
   commentNode = liftCommentNode
@@ -639,7 +643,7 @@ instance (DomBuilder t m, MonadFix m, MonadHold t m, Group q, Query q, Additive 
 -- * Convenience functions
 
 class HasDomEvent t target eventName | target -> t where
-  type DomEventType target eventName :: *
+  type DomEventType target eventName :: Type
   domEvent :: EventName eventName -> target -> Event t (DomEventType target eventName)
 
 instance Reflex t => HasDomEvent t (Element EventResult d t) en where
@@ -732,7 +736,6 @@ class Monad m => HasDocument m where
     :: ( m ~ f m'
        , RawDocument (DomBuilderSpace m) ~ RawDocument (DomBuilderSpace m')
        , MonadTrans f
-       , Monad m'
        , HasDocument m'
        )
     => m (RawDocument (DomBuilderSpace m))
@@ -744,3 +747,11 @@ instance HasDocument m => HasDocument (DynamicWriterT t w m)
 instance HasDocument m => HasDocument (PostBuildT t m)
 instance HasDocument m => HasDocument (RequesterT t request response m)
 instance HasDocument m => HasDocument (QueryT t q m)
+
+class HasSetValue a where
+  type SetValue a :: Type
+  setValue :: Lens' a (SetValue a)
+
+instance Reflex t => HasSetValue (TextAreaElementConfig er t m) where
+  type SetValue (TextAreaElementConfig er t m) = Event t Text
+  setValue = textAreaElementConfig_setValue

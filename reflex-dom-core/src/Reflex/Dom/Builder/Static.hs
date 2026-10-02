@@ -18,8 +18,9 @@ module Reflex.Dom.Builder.Static where
 import Data.IORef (IORef)
 import Blaze.ByteString.Builder.Html.Utf8
 import Control.Lens hiding (element)
+import Control.Monad
 import Control.Monad.Exception
-import Control.Monad.Identity
+import Control.Monad.Fix
 import Control.Monad.Primitive
 import Control.Monad.Ref
 import Control.Monad.State.Strict
@@ -37,7 +38,8 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 import Data.Map.Misc (applyMap)
-import Data.Monoid ((<>))
+import Data.Maybe (fromMaybe)
+import Data.Kind (Type)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -143,7 +145,7 @@ data StaticDomEvent (a :: k)
 -- | Static documents don't process events, so all handlers are equivalent
 data StaticDomHandler (a :: k) (b :: k) = StaticDomHandler
 
-data StaticEventSpec (er :: EventTag -> *) = StaticEventSpec deriving (Generic)
+data StaticEventSpec (er :: EventTag -> Type) = StaticEventSpec deriving (Generic)
 
 instance Default (StaticEventSpec er)
 
@@ -187,11 +189,9 @@ replaceEnd key = void $ commentNode $ def { _commentNodeConfig_initialContents =
 hoistIntMapWithKeyWithAdjust :: forall t m p a b.
   ( Adjustable t m
   , MonadHold t m
-  , Patch (p a)
   , Functor p
   , Patch (p (Behavior t Builder))
   , PatchTarget (p (Behavior t Builder)) ~ IntMap (Behavior t Builder)
-  , Ref m ~ IORef, MonadIO m, MonadFix m, PerformEvent t m, MonadReflexCreateTrigger t m, MonadRef m -- TODO remove
   )
   => (forall x. (IntMap.Key -> a -> m x)
       -> IntMap a
@@ -218,12 +218,11 @@ hoistIntMapWithKeyWithAdjust base f im0 im' = do
       sample o
   return (result0, result')
 
-hoistDMapWithKeyWithAdjust :: forall (k :: * -> *) v v' t m p.
+hoistDMapWithKeyWithAdjust :: forall (k :: Type -> Type) v v' t m p.
   ( Adjustable t m
   , MonadHold t m
   , PatchTarget (p k (Constant (Behavior t Builder))) ~ DMap k (Constant (Behavior t Builder))
   , Patch (p k (Constant (Behavior t Builder)))
-  , Ref m ~ IORef, MonadIO m, MonadFix m, PerformEvent t m, MonadReflexCreateTrigger t m, MonadRef m -- TODO remove
   )
   => (forall vv vv'.
          (forall a. k a -> vv a -> m (vv' a))
@@ -273,7 +272,7 @@ instance SupportsStaticDomBuilder t m => DomBuilder t (StaticDomBuilderT t m) wh
     --TODO: Do not escape quotation marks; see https://stackoverflow.com/questions/25612166/what-characters-must-be-escaped-in-html-5
     shouldEscape <- asks _staticDomBuilderEnv_shouldEscape
     let escape = if shouldEscape then fromHtmlEscapedText else byteString . encodeUtf8
-    modify . (:) =<< (\c -> "<!--" <> c <> "-->") <$> case mSetContents of
+    (modify . (:)) . (\c -> "<!--" <> c <> "-->") =<< case mSetContents of
       Nothing -> return (pure (escape initialContents))
       Just setContents -> hold (escape initialContents) $ fmapCheap escape setContents --Only because it doesn't get optimized when profiling is on
     return $ CommentNode ()
@@ -311,13 +310,32 @@ instance SupportsStaticDomBuilder t m => DomBuilder t (StaticDomBuilderT t m) wh
       return (e, result)
   {-# INLINABLE inputElement #-}
   inputElement cfg = do
-    (e, _result) <- element "input" (cfg ^. inputElementConfig_elementConfig) $ return ()
-    let v0 = constDyn $ cfg ^. inputElementConfig_initialValue
-    let c0 = constDyn $ cfg ^. inputElementConfig_initialChecked
+    -- Tweak the config to update the "value" and "checked" attributes appropriately.
+    -- TODO: warn upon overwriting values.
+    let setInitialValue = Map.insert "value" (_inputElementConfig_initialValue cfg)
+        setUpdatedValue updatedAttrs = case _inputElementConfig_setValue cfg of
+          Nothing -> updatedAttrs
+          Just e -> (Map.singleton "value" . Just <$> e) <> updatedAttrs
+        setInitialChecked = case _inputElementConfig_initialChecked cfg of
+          True -> Map.insert "checked" "checked"
+          False -> id
+        setUpdatedChecked updatedAttrs = case _inputElementConfig_setChecked cfg of
+          Nothing -> updatedAttrs
+          Just e -> (Map.singleton "checked" (Just "checked") <$ e) <> updatedAttrs
+        adjustedConfig = _inputElementConfig_elementConfig cfg
+          & elementConfig_initialAttributes %~ setInitialValue . setInitialChecked
+          & elementConfig_modifyAttributes %~ setUpdatedValue . setUpdatedChecked
+    (e, _result) <- element "input" adjustedConfig $ return ()
+    v <- case _inputElementConfig_setValue cfg of
+      Nothing -> pure $ constDyn (cfg ^. inputElementConfig_initialValue)
+      Just ev -> holdDyn (cfg ^. inputElementConfig_initialValue) ev
+    c <- case _inputElementConfig_setChecked cfg of
+      Nothing -> pure $ constDyn $ _inputElementConfig_initialChecked cfg
+      Just ev -> holdDyn (_inputElementConfig_initialChecked cfg) ev
     let hasFocus = constDyn False -- TODO should this be coming from initialAtttributes
     return $ InputElement
-      { _inputElement_value = v0
-      , _inputElement_checked = c0
+      { _inputElement_value = v
+      , _inputElement_checked = c
       , _inputElement_checkedChange = never
       , _inputElement_input = never
       , _inputElement_hasFocus = hasFocus
@@ -327,12 +345,17 @@ instance SupportsStaticDomBuilder t m => DomBuilder t (StaticDomBuilderT t m) wh
       }
   {-# INLINABLE textAreaElement #-}
   textAreaElement cfg = do
-    --TODO: Support setValue event
-    (e, _domElement) <- element "textarea" (cfg ^. textAreaElementConfig_elementConfig) $ return ()
-    let v0 = constDyn $ cfg ^. textAreaElementConfig_initialValue
+    (e, _domElement) <- element "textarea" (_textAreaElementConfig_elementConfig cfg) $ do
+      -- Set the initial value
+      void $ textNode $ def
+        & textNodeConfig_initialContents .~ _textAreaElementConfig_initialValue cfg
+        & textNodeConfig_setContents .~ fromMaybe never (_textAreaElementConfig_setValue cfg)
+    v <- case _textAreaElementConfig_setValue cfg of
+      Nothing -> pure $ constDyn (cfg ^. textAreaElementConfig_initialValue)
+      Just ev -> holdDyn (cfg ^. textAreaElementConfig_initialValue) ev
     let hasFocus = constDyn False -- TODO should this be coming from initialAtttributes
     return $ TextAreaElement
-      { _textAreaElement_value = v0
+      { _textAreaElement_value = v
       , _textAreaElement_input = never
       , _textAreaElement_hasFocus = hasFocus
       , _textAreaElement_element = e

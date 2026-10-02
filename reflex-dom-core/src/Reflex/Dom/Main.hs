@@ -5,7 +5,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -34,14 +33,13 @@ import Reflex.Profiled
 import Control.Concurrent
 import Control.Lens
 import Control.Monad
-import Control.Monad.Reader hiding (forM, forM_, mapM, mapM_, sequence, sequence_)
+import Control.Monad.Reader
 import Control.Monad.Ref
 import Data.ByteString (ByteString)
 import Data.Dependent.Sum (DSum (..))
 import Data.Foldable (for_)
 import Data.IORef
 import Data.Maybe
-import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -59,7 +57,7 @@ import Reflex.Profiled
 
 {-# INLINE mainHydrationWidgetWithHead #-}
 mainHydrationWidgetWithHead :: (forall x. HydrationWidget x ()) -> (forall x. HydrationWidget x ()) -> JSM ()
-mainHydrationWidgetWithHead = mainHydrationWidgetWithHead'
+mainHydrationWidgetWithHead head' body = mainHydrationWidgetWithHead' head' body
 
 {-# INLINABLE mainHydrationWidgetWithHead' #-}
 -- | Warning: `mainHydrationWidgetWithHead'` is provided only as performance tweak. It is expected to disappear in future releases.
@@ -68,13 +66,19 @@ mainHydrationWidgetWithHead' = mainHydrationWidgetWithSwitchoverAction' (pure ()
 
 {-# INLINE mainHydrationWidgetWithSwitchoverAction #-}
 mainHydrationWidgetWithSwitchoverAction :: JSM () -> (forall x. HydrationWidget x ()) -> (forall x. HydrationWidget x ()) -> JSM ()
-mainHydrationWidgetWithSwitchoverAction = mainHydrationWidgetWithSwitchoverAction'
+mainHydrationWidgetWithSwitchoverAction switchoverAction head' body = mainHydrationWidgetWithSwitchoverAction' switchoverAction head' body
 
 {-# INLINABLE mainHydrationWidgetWithSwitchoverAction' #-}
 -- | Warning: `mainHydrationWidgetWithSwitchoverAction'` is provided only as performance tweak. It is expected to disappear in future releases.
 mainHydrationWidgetWithSwitchoverAction' :: JSM () -> HydrationWidget () () -> HydrationWidget () () -> JSM ()
-mainHydrationWidgetWithSwitchoverAction' switchoverAction head' body = do
-  runHydrationWidgetWithHeadAndBody switchoverAction $ \appendHead appendBody -> do
+mainHydrationWidgetWithSwitchoverAction' = mainHydrationWidgetWithSwitchoverActionWithFailure' (pure ())
+
+
+{-# INLINABLE mainHydrationWidgetWithSwitchoverActionWithFailure' #-}
+-- | Warning: `mainHydrationWidgetWithSwitchoverActionWithFaiilure'` is provided only as performance tweak. It is expected to disappear in future releases.
+mainHydrationWidgetWithSwitchoverActionWithFailure' :: IO () -> JSM () -> HydrationWidget () () -> HydrationWidget () () -> JSM ()
+mainHydrationWidgetWithSwitchoverActionWithFailure' onFailure switchoverAction head' body = do
+  runHydrationWidgetWithHeadAndBodyWithFailure onFailure switchoverAction $ \appendHead appendBody -> do
     appendHead head'
     appendBody body
 
@@ -89,7 +93,21 @@ attachHydrationWidget
     -> PerformEventT DomTimeline DomHost (a, IORef (Maybe (EventTrigger DomTimeline ())))
      )
   -> IO (a, FireCommand DomTimeline DomHost)
-attachHydrationWidget switchoverAction jsSing w = do
+attachHydrationWidget = attachHydrationWidgetWithFailure (pure ())
+
+{-# INLINABLE attachHydrationWidgetWithFailure #-}
+attachHydrationWidgetWithFailure
+  :: IO ()
+  -> JSM ()
+  -> JSContextSingleton ()
+  -> ( Event DomTimeline ()
+    -> IORef HydrationMode
+    -> Maybe (IORef [(Node, HydrationRunnerT DomTimeline (DomCoreWidget ()) ())])
+    -> EventChannel
+    -> PerformEventT DomTimeline DomHost (a, IORef (Maybe (EventTrigger DomTimeline ())))
+     )
+  -> IO (a, FireCommand DomTimeline DomHost)
+attachHydrationWidgetWithFailure onFailure switchoverAction jsSing w = do
   hydrationMode <- liftIO $ newIORef HydrationMode_Hydrating
   rootNodesRef <- liftIO $ newIORef []
   events <- newChan
@@ -105,7 +123,7 @@ attachHydrationWidget switchoverAction jsSing w = do
     rootNodes <- liftIO $ readIORef rootNodesRef
     let delayedAction = do
           for_ (reverse rootNodes) $ \(rootNode, runner) -> do
-            let hydrate = runHydrationRunnerT runner Nothing rootNode events
+            let hydrate = runHydrationRunnerTWithFailure runner onFailure Nothing rootNode events
             void $ runWithJSContextSingleton (runPostBuildT hydrate never) jsSing
           liftIO $ writeIORef hydrationMode HydrationMode_Immediate
           runWithJSContextSingleton (DOM.liftJSM switchoverAction) jsSing
@@ -126,11 +144,22 @@ runHydrationWidgetWithHeadAndBody
       -> FloatingWidget () ()
      )
   -> JSM ()
-runHydrationWidgetWithHeadAndBody switchoverAction app = withJSContextSingletonMono $ \jsSing -> do
+runHydrationWidgetWithHeadAndBody = runHydrationWidgetWithHeadAndBodyWithFailure (pure ())
+
+{-# INLINABLE runHydrationWidgetWithHeadAndBodyWithFailure #-}
+runHydrationWidgetWithHeadAndBodyWithFailure
+  :: IO ()
+  -> JSM ()
+  -> (   (forall c. HydrationWidget () c -> FloatingWidget () c) -- "Append to head" --TODO: test invoking this more than once
+      -> (forall c. HydrationWidget () c -> FloatingWidget () c) -- "Append to body" --TODO: test invoking this more than once
+      -> FloatingWidget () ()
+     )
+  -> JSM ()
+runHydrationWidgetWithHeadAndBodyWithFailure onFailure switchoverAction app = withJSContextSingletonMono $ \jsSing -> do
   globalDoc <- currentDocumentUnchecked
   headElement <- getHeadUnchecked globalDoc
   bodyElement <- getBodyUnchecked globalDoc
-  (events, fc) <- liftIO . attachHydrationWidget switchoverAction jsSing $ \switchover hydrationMode hydrationResult events -> do
+  (events, fc) <- liftIO . attachHydrationWidgetWithFailure onFailure switchoverAction jsSing $ \switchover hydrationMode hydrationResult events -> do
     (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
     let hydrateDom :: DOM.Node -> HydrationWidget () c -> FloatingWidget () c
         hydrateDom n w = do
@@ -157,7 +186,7 @@ runHydrationWidgetWithHeadAndBody switchoverAction app = withJSContextSingletonM
 
 {-# INLINE mainWidget #-}
 mainWidget :: (forall x. Widget x ()) -> JSM ()
-mainWidget = mainWidget'
+mainWidget w = mainWidget' w
 
 {-# INLINABLE mainWidget' #-}
 -- | Warning: `mainWidget'` is provided only as performance tweak. It is expected to disappear in future releases.

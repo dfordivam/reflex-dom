@@ -8,7 +8,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE JavaScriptFFI #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
@@ -31,7 +30,6 @@ module Reflex.Dom.WebSocket
 import Prelude hiding (all, concat, concatMap, div, mapM, mapM_, sequence, span)
 
 import Reflex.Class
-import Reflex.Dom.Class
 import Reflex.Dom.WebSocket.Foreign
 import Reflex.PerformEvent.Class
 import Reflex.PostBuild.Class
@@ -40,10 +38,9 @@ import Reflex.TriggerEvent.Class
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Lens
-import Control.Monad hiding (forM, forM_, mapM, mapM_, sequence)
+import Control.Monad hiding (forM, mapM, mapM_, sequence)
 import Control.Monad.Catch (catch, SomeException)
 import Control.Monad.IO.Class
-import Control.Monad.State
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
@@ -82,12 +79,11 @@ data RawWebSocket t a
                                                 )
                   }
 
-webSocket :: (MonadJSM m, MonadJSM (Performable m), HasJSContext m, PerformEvent t m, TriggerEvent t m, PostBuild t m, IsWebSocketMessage a) => Text -> WebSocketConfig t a -> m (WebSocket t)
+webSocket :: (MonadJSM m, MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, PostBuild t m, IsWebSocketMessage a) => Text -> WebSocketConfig t a -> m (WebSocket t)
 webSocket url config = webSocket' url config onBSMessage
 
-webSocket' :: (MonadJSM m, MonadJSM (Performable m), HasJSContext m, PerformEvent t m, TriggerEvent t m, PostBuild t m, IsWebSocketMessage a) => Text -> WebSocketConfig t a -> (Either ByteString JSVal -> JSM b) -> m (RawWebSocket t b)
+webSocket' :: (MonadJSM m, MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, PostBuild t m, IsWebSocketMessage a) => Text -> WebSocketConfig t a -> (Either ByteString JSVal -> JSM b) -> m (RawWebSocket t b)
 webSocket' url config onRawMessage = do
-  wv <- fmap unJSContextSingleton askJSContext
   (eRecv, onMessage) <- newTriggerEvent
   currentSocketRef <- liftIO $ newIORef Nothing
   (eOpen, triggerEOpen) <- newTriggerEventWithOnComplete
@@ -105,7 +101,7 @@ webSocket' url config onRawMessage = do
           liftIO $ threadDelay 1000000
           start
       start = do
-        ws <- newWebSocket wv url (_webSocketConfig_protocols config) (onRawMessage >=> liftIO . onMessage) (liftIO onOpen) (liftIO onError) onClose
+        ws <- newWebSocket url (_webSocketConfig_protocols config) (onRawMessage >=> liftIO . onMessage) (liftIO onOpen) (liftIO onError) onClose
         liftIO $ writeIORef currentSocketRef $ Just ws
         return ()
   performEvent_ . (liftJSM start <$) =<< getPostBuild
@@ -135,10 +131,10 @@ webSocket' url config onRawMessage = do
     unless success $ atomically $ unGetTQueue payloadQueue payload
   return $ RawWebSocket eRecv eOpen eError eClose
 
-textWebSocket :: (IsWebSocketMessage a, MonadJSM m, MonadJSM (Performable m), HasJSContext m, PostBuild t m, TriggerEvent t m, PerformEvent t m, MonadHold t m, Reflex t) => Text -> WebSocketConfig t a -> m (RawWebSocket t Text)
+textWebSocket :: (IsWebSocketMessage a, MonadJSM m, MonadJSM (Performable m), PostBuild t m, TriggerEvent t m, PerformEvent t m) => Text -> WebSocketConfig t a -> m (RawWebSocket t Text)
 textWebSocket url cfg = webSocket' url cfg (either (return . decodeUtf8) fromJSValUnchecked)
 
-jsonWebSocket :: (ToJSON a, FromJSON b, MonadJSM m, MonadJSM (Performable m), HasJSContext m, PostBuild t m, TriggerEvent t m, PerformEvent t m, MonadHold t m, Reflex t) => Text -> WebSocketConfig t a -> m (RawWebSocket t (Maybe b))
+jsonWebSocket :: (ToJSON a, FromJSON b, MonadJSM m, MonadJSM (Performable m), PostBuild t m, TriggerEvent t m, PerformEvent t m) => Text -> WebSocketConfig t a -> m (RawWebSocket t (Maybe b))
 jsonWebSocket url cfg = do
   ws <- textWebSocket url $ cfg { _webSocketConfig_send = fmap (decodeUtf8 . toStrict . encode) <$> _webSocketConfig_send cfg }
   return ws { _webSocket_recv = jsonDecode . textToJSString <$> _webSocket_recv ws }

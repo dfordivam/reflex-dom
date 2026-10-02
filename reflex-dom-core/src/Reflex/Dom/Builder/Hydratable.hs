@@ -15,13 +15,12 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Control
 import Data.Coerce
 import qualified Data.Map as Map
-import Foreign.JavaScript.TH
 #ifndef ghcjs_HOST_OS
 import GHCJS.DOM.Types (MonadJSM (..))
 #endif
 import Reflex
 import Reflex.Dom.Builder.Class
-import Reflex.Dom.Builder.Immediate (HasDocument (..), hydratableAttribute)
+import Reflex.Dom.Builder.Immediate (hydratableAttribute)
 import Reflex.Host.Class
 
 -- | A DomBuilder transformer that adds an attribute to all elements such that the
@@ -101,14 +100,6 @@ instance DomBuilder t m => DomBuilder t (HydratableT m) where
     lift $ selectElement cfg' $ runHydratableT child
 
 instance HasDocument m => HasDocument (HydratableT m)
-
-instance HasJSContext m => HasJSContext (HydratableT m) where
-  type JSContextPhantom (HydratableT m) = JSContextPhantom m
-  askJSContext = lift askJSContext
-
-instance HasJS js m => HasJS js (HydratableT m) where
-  type JSX (HydratableT m) = JSX m
-  liftJS = lift . liftJS
 
 instance DomRenderHook t m => DomRenderHook t (HydratableT m) where
   withRenderHook f = HydratableT . withRenderHook f . runHydratableT

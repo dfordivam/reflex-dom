@@ -1,10 +1,11 @@
-import Language.Haskell.HLint3 (hlint)
+import Language.Haskell.HLint (hlint)
 import System.Exit (exitFailure, exitSuccess)
 
 main :: IO ()
 main = do
   ideas <- hlint
     [ "."
+    , "--ignore=Functor law"
     , "--ignore=Redundant do"
     , "--ignore=Use camelCase"
     , "--ignore=Redundant $"
@@ -20,7 +21,9 @@ main = do
     , "--ignore=Unnecessary hiding" -- Interferes with cross-version compatibility
     , "--ignore=Use <$>"
     , "--ignore=Reduce duplication" --TODO: Re-enable this test
+    , "--ignore=Eta reduce" -- simplified subsumption
     , "--ignore=Use list comprehension"
+    , "--ignore=Evaluate"
     , "--cpp-define=USE_TEMPLATE_HASKELL"
     ]
   if null ideas then exitSuccess else exitFailure

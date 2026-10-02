@@ -1,26 +1,33 @@
 -- This tests that reflex-dom re-exports all of reflex-dom-core's modules.
 -- Without this test they easily drift.
+{-# Language CPP #-}
 module Main where
 
 import Control.Monad (when)
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import qualified Data.Set as Set
-import Distribution.Types.PackageName (mkPackageName)
-import Distribution.Compiler (CompilerFlavor (GHC))
+import Distribution.Compiler (CompilerFlavor(GHC))
 import Distribution.ModuleName (ModuleName, components)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription)
-import qualified Distribution.Parsec.Common as Dist
-import Distribution.Parsec.ParseResult (runParseResult)
+import Distribution.PackageDescription.Parsec (runParseResult)
 import qualified Distribution.System as Dist
 import Distribution.Types.BuildInfo (buildable, defaultExtensions, defaultLanguage, hsSourceDirs, options)
 import Distribution.Types.CondTree (simplifyCondTree)
-import Distribution.Types.GenericPackageDescription (ConfVar (Arch, Impl, OS), condLibrary)
+#if MIN_VERSION_Cabal(3,2,0)
+import Distribution.Types.ConfVar (ConfVar(Arch, Impl, OS))
+import Distribution.Types.GenericPackageDescription (condLibrary)
+#else
+import Distribution.Types.GenericPackageDescription (ConfVar(Arch, Impl, OS), condLibrary)
+#endif
 import Distribution.Types.Library (exposedModules, libBuildInfo, reexportedModules)
 import Distribution.Types.ModuleReexport (ModuleReexport, moduleReexportOriginalName, moduleReexportOriginalPackage)
-import Distribution.Utils.Generic (toUTF8BS, readUTF8File)
+import Distribution.Types.PackageName (mkPackageName)
+import Distribution.Utils.Generic (readUTF8File, toUTF8BS)
 import System.Environment (getArgs)
 import qualified System.Info
+
 
 main :: IO ()
 main = do
@@ -69,4 +76,4 @@ parseCabalExports file = do
       let (_, lib) = simplifyCondTree evalConfVar condLib
       in (exposedModules lib, reexportedModules lib)
     Right Nothing -> error $ "Haskell package has no library component: " <> file
-    Left (_, errors) -> error $ "Failed to parse " <> file <> ":\n" <> unlines (map show errors)
+    Left (_, errors) -> error $ "Failed to parse " <> file <> ":\n" <> unlines (map show (NE.toList errors))
